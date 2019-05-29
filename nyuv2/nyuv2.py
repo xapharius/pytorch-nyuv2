@@ -85,28 +85,35 @@ class NYUv2(Dataset):
 
     def __getitem__(self, index: int):
         folder = lambda name: os.path.join(self.root, f"{self._split}_{name}")
-        imgs = []
+        imgs = {}
 
         if self.rgb:
-            imgs.append(Image.open(os.path.join(folder("rgb"), self._files[index])))
+            imgs["rgb"] = Image.open(os.path.join(folder("rgb"), self._files[index]))
 
         if self.segmentation:
-            imgs.append(Image.open(os.path.join(folder("seg13"), self._files[index])))
+            imgs["seg13"] = Image.open(
+                os.path.join(folder("seg13"), self._files[index])
+            )
 
         if self.surface_normal:
-            imgs.append(Image.open(os.path.join(folder("sn"), self._files[index])))
+            imgs["sn"] = Image.open(os.path.join(folder("sn"), self._files[index]))
 
         if self.depth:
-            imgs.append(Image.open(os.path.join(folder("depth"), self._files[index])))
+            imgs["depth"] = Image.open(
+                os.path.join(folder("depth"), self._files[index])
+            )
 
         seed = random.randrange(sys.maxsize)
-        for i in range(len(imgs)):
+        for key, img in imgs.items():
             random.seed(seed)
-            imgs[i] = self.transform(imgs[i])
+            imgs[key] = self.transform(img)
         if self.depth:
-            imgs[-1] = _rgba_to_float32(imgs[-1])
+            imgs["depth"] = _rgba_to_float32(imgs["depth"])
+        if self.segmentation:
+            # ToTensor scales to [0, 1] by default
+            imgs["seg13"] = (imgs["seg13"] * 255).long()
 
-        return imgs
+        return list(imgs.values())
 
     def __len__(self):
         return len(self._files)
