@@ -24,6 +24,21 @@ class NYUv2(Dataset):
     """
     PyTorch wrapper for the NYUv2 dataset focused on multi-task learning.
     Data sources available: RGB, Semantic Segmentation, Surface Normals, Depth Images.
+    All outputs will be tensors.
+
+
+    ### Output
+    All images are of size: 480 x 640
+
+    1. RGB: 3 channels, without custom rgb_normalize the values will be in [0, 1]
+    due to ToTensor().
+
+    2. Semantic Segmentation: 1 channel with integers representing one of the 13
+    classes.
+
+    3. Surface Normals: 3 channels, with values in [0, 1] due to ToTensor()
+
+    4. Depth Images: 1 channel with floats representing the distance in meters.
     """
 
     def __init__(
@@ -32,6 +47,7 @@ class NYUv2(Dataset):
         train: bool = True,
         download: bool = False,
         transform=None,
+        rgb_normalize=None,
         rgb: bool = True,
         segmentation: bool = True,
         surface_normal: bool = True,
@@ -47,7 +63,9 @@ class NYUv2(Dataset):
         :param download: whether to download and process data if missing
         :param transform: the transformation pipeline that should be used for all
         images, should be used only for augmentation, not normalisation. Returns
-        tensors.
+        tensors by default.
+        :param rgb_normalize: a transformation pipeline applied to the rgb output
+        after it has been converted to a tensor. Use to normalize the input.
         :param rgb: load RGB images
         :param segmentation: load semantic segmentation images
         :param surface_normal: load surface_normal images
@@ -63,6 +81,7 @@ class NYUv2(Dataset):
         if not isinstance(transform.transforms[-1], transforms.ToTensor):
             transform.transforms.append(transforms.ToTensor())
         self.transform = transform
+        self.rgb_normalize = rgb_normalize
 
         self.train = train
         self._split = "train" if train else "test"
@@ -85,7 +104,7 @@ class NYUv2(Dataset):
 
     def __getitem__(self, index: int):
         folder = lambda name: os.path.join(self.root, f"{self._split}_{name}")
-        imgs = {}
+        imgs = dict()
 
         if self.rgb:
             imgs["rgb"] = Image.open(os.path.join(folder("rgb"), self._files[index]))
@@ -107,8 +126,10 @@ class NYUv2(Dataset):
         for key, img in imgs.items():
             random.seed(seed)
             imgs[key] = self.transform(img)
+        if self.rgb and self.rgb_normalize:
+            imgs["rgb"] = self.rgb_normalize(imgs["rgb"])
         if self.depth:
-            imgs["depth"] = _rgba_to_float32(imgs["depth"])
+            imgs["depth"] = _rgba_to_float32(imgs["depth"] * 255)
         if self.segmentation:
             # ToTensor scales to [0, 1] by default
             imgs["seg13"] = (imgs["seg13"] * 255).long()
@@ -120,7 +141,7 @@ class NYUv2(Dataset):
 
     def __repr__(self):
         fmt_str = f"Dataset {self.__class__.__name__}\n"
-        fmt_str += f"    Number of datapoints: {self.__len__()}\n"
+        fmt_str += f"    Number of data points: {self.__len__()}\n"
         fmt_str += f"    Split: {self._split}\n"
         fmt_str += f"    Root Location: {self.root}\n"
         tmp = "    Transforms: "
@@ -289,6 +310,7 @@ def _create_depth_files(mat_file: str, root: str, train_ids: list):
 
 def _float32_to_rgba(arr: np.ndarray):
     """
+    Encode depth image from float32 into rgba that can be saved to disk as png
     Shape: [H * W] -> [H * W * 4]
     Value: abcdefgh -> [ab, cd, ef, gh]
     """
@@ -307,9 +329,27 @@ def _float32_to_rgba(arr: np.ndarray):
 
 def _rgba_to_float32(arr: torch.Tensor):
     """
+    Decode a depth image from rbga (png) to the original float values.
+    Expects rbga value ranges: 0 to 255
     Shape: [4 * H * W] -> [H * W]
     Value: [ab, cd, ef, gh] -> abcdefgh
     """
     res = (arr[0] + arr[1] * 1e2 + arr[2] * 1e4 + arr[3] * 1e6) / 1e7
     res = res.unsqueeze(dim=0)
     return res
+
+
+def __test_depth_conversion(mat_file: str):
+    """
+    Test whether depth encoding and decoding returns the original value
+    :param mat_file: path to the official labelled dataset .mat file
+    :return: None if passes, assert if fails
+    """
+    depths = h5py.File(mat_file, "r")["depths"]
+    raw = depths[0].T  # image at index 0
+    encoded = _float32_to_rgba(raw)
+    pil = Image.fromarray(encoded, mode="RGBA")
+    transformed = transforms.ToTensor()(pil) * 255
+    decoded = _rgba_to_float32(transformed)
+    assert torch.allclose(torch.tensor(raw), decoded)
+
