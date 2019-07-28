@@ -10,6 +10,7 @@ import h5py
 import torch
 import shutil
 import random
+import logging
 import tarfile
 import zipfile
 import numpy as np
@@ -24,8 +25,6 @@ class NYUv2(Dataset):
     """
     PyTorch wrapper for the NYUv2 dataset focused on multi-task learning.
     Data sources available: RGB, Semantic Segmentation, Surface Normals, Depth Images.
-    All outputs will be tensors.
-
 
     ### Output
     All images are of size: 480 x 640
@@ -46,8 +45,10 @@ class NYUv2(Dataset):
         root: str,
         train: bool = True,
         download: bool = False,
-        transform=None,
-        rgb_normalize=None,
+        rgb_transform=None,
+        seg_transform=None,
+        sn_transform=None,
+        depth_transform=None,
         rgb: bool = True,
         segmentation: bool = True,
         surface_normal: bool = True,
@@ -55,17 +56,19 @@ class NYUv2(Dataset):
     ):
         """
         Images will be automatically returned as tensors.
-        Transformations will be applied to all data sources - use only for augmentation.
         Will return tuples based on what data source has been enabled (rgb, seg etc).
 
         :param root: path to root folder (eg /data/NYUv2)
         :param train: whether to load the train or test set
         :param download: whether to download and process data if missing
-        :param transform: the transformation pipeline that should be used for all
-        images, should be used only for augmentation, not normalisation. Returns
-        tensors by default.
-        :param rgb_normalize: a transformation pipeline applied to the rgb output
-        after it has been converted to a tensor. Use to normalize the input.
+        :param rgb_transform: the transformation pipeline for rbg images
+        :param seg_transform: the transformation pipeline for segmentation images,
+        needs to end in a ToTensor transformation as more operations are internally
+        performed afterwards
+        :param sn_transform: the transformation pipeline for surface normal images
+        :param depth_transform: the transformation pipeline for depth images,
+        needs to end in a ToTensor transformation as more operations are internally
+        performed afterwards
         :param rgb: load RGB images
         :param segmentation: load semantic segmentation images
         :param surface_normal: load surface_normal images
@@ -74,14 +77,10 @@ class NYUv2(Dataset):
         super().__init__()
         self.root = root
 
-        if transform is None:
-            transform = transforms.Compose([transforms.ToTensor()])
-        if not isinstance(transform, transforms.Compose):
-            transform = transforms.Compose([transform])
-        if not isinstance(transform.transforms[-1], transforms.ToTensor):
-            transform.transforms.append(transforms.ToTensor())
-        self.transform = transform
-        self.rgb_normalize = rgb_normalize
+        self.rgb_transform = rgb_transform
+        self.seg_transform = seg_transform
+        self.sn_transform = sn_transform
+        self.depth_transform = depth_transform
 
         self.train = train
         self._split = "train" if train else "test"
@@ -123,16 +122,39 @@ class NYUv2(Dataset):
             )
 
         seed = random.randrange(sys.maxsize)
-        for key, img in imgs.items():
+        if self.rgb and self.rgb_transform:
             random.seed(seed)
-            imgs[key] = self.transform(img)
-        if self.rgb and self.rgb_normalize:
-            imgs["rgb"] = self.rgb_normalize(imgs["rgb"])
-        if self.depth:
-            imgs["depth"] = _rgba_to_float32(imgs["depth"] * 255)
+            imgs["rgb"] = self.rgb_transform(imgs["rgb"])
+
         if self.segmentation:
-            # ToTensor scales to [0, 1] by default
-            imgs["seg13"] = (imgs["seg13"] * 255).long()
+            if self.seg_transform:
+                random.seed(seed)
+                imgs["seg13"] = self.seg_transform(imgs["seg13"])
+            if isinstance(imgs["seg13"], torch.Tensor):
+                # ToTensor scales to [0, 1] by default
+                imgs["seg13"] = (imgs["seg13"] * 255).long()
+            else:
+                logging.warning(
+                    "Segmentation images should produce integer values - transform "
+                    "pipeline should output a tensor for conversion to trigger"
+                )
+
+        if self.surface_normal and self.sn_transform:
+            random.seed(seed)
+            imgs["sn"] = self.sn_transform(imgs["sn"])
+
+        if self.depth:
+            if self.depth_transform:
+                random.seed(seed)
+                imgs["depth"] = self.depth_transform(imgs["depth"])
+            if isinstance(imgs["depth"], torch.Tensor):
+                # Additional transformation - decoding images to float32
+                imgs["depth"] = _rgba_to_float32(imgs["depth"] * 255)
+            else:
+                logging.warning(
+                    "Depth images require decoding - transform pipeline "
+                    "should output a tensor for decoder to trigger"
+                )
 
         return list(imgs.values())
 
@@ -352,4 +374,3 @@ def __test_depth_conversion(mat_file: str):
     transformed = transforms.ToTensor()(pil) * 255
     decoded = _rgba_to_float32(transformed)
     assert torch.allclose(torch.tensor(raw), decoded)
-
