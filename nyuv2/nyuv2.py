@@ -82,6 +82,14 @@ class NYUv2(Dataset):
         self.sn_transform = sn_transform
         self.depth_transform = depth_transform
 
+        pre = post = None
+        if depth_transform is not None:
+            if isinstance(depth_transform, transforms.Compose):
+                pre, post = _split_transforms(depth_transform)
+            else:
+                pre, post = depth_transform, None
+        self._depth_pre_transform, self._depth_post_transform = pre, post
+
         self.train = train
         self._split = "train" if train else "test"
 
@@ -146,15 +154,17 @@ class NYUv2(Dataset):
         if self.depth:
             if self.depth_transform:
                 random.seed(seed)
-                imgs["depth"] = self.depth_transform(imgs["depth"])
-            if isinstance(imgs["depth"], torch.Tensor):
-                # Additional transformation - decoding images to float32
-                imgs["depth"] = _rgba_to_float32(imgs["depth"] * 255)
-            else:
-                logging.warning(
-                    "Depth images require decoding - transform pipeline "
-                    "should output a tensor for decoder to trigger"
-                )
+                imgs["depth"] = self._depth_pre_transform(imgs["depth"])
+                if isinstance(imgs["depth"], torch.Tensor):
+                    # Additional transformation - decoding images to float32
+                    imgs["depth"] = _rgba_to_float32(imgs["depth"] * 255)
+                else:
+                    logging.warning(
+                        "Depth images require decoding - transform pipeline "
+                        "should output a tensor for decoder to trigger"
+                    )
+                if self._depth_post_transform is not None:
+                    imgs["depth"] = self._depth_post_transform(imgs["depth"])
 
         return list(imgs.values())
 
@@ -166,9 +176,21 @@ class NYUv2(Dataset):
         fmt_str += f"    Number of data points: {self.__len__()}\n"
         fmt_str += f"    Split: {self._split}\n"
         fmt_str += f"    Root Location: {self.root}\n"
-        tmp = "    Transforms: "
+        tmp = "    RGB Transforms: "
         fmt_str += "{0}{1}\n".format(
-            tmp, self.transform.__repr__().replace("\n", "\n" + " " * len(tmp))
+            tmp, self.rgb_transform.__repr__().replace("\n", "\n" + " " * len(tmp))
+        )
+        tmp = "    Seg Transforms: "
+        fmt_str += "{0}{1}\n".format(
+            tmp, self.seg_transform.__repr__().replace("\n", "\n" + " " * len(tmp))
+        )
+        tmp = "    SN Transforms: "
+        fmt_str += "{0}{1}\n".format(
+            tmp, self.sn_transform.__repr__().replace("\n", "\n" + " " * len(tmp))
+        )
+        tmp = "    Depth Transforms: "
+        fmt_str += "{0}{1}\n".format(
+            tmp, self.depth_transform.__repr__().replace("\n", "\n" + " " * len(tmp))
         )
         return fmt_str
 
@@ -374,3 +396,24 @@ def __test_depth_conversion(mat_file: str):
     transformed = transforms.ToTensor()(pil) * 255
     decoded = _rgba_to_float32(transformed)
     assert torch.allclose(torch.tensor(raw), decoded)
+
+
+def _split_transforms(compose) -> (transforms.Compose, transforms.Compose):
+    """
+    Split transforms pipeline into pre and post ToTensor()
+    :param compose: a transforms pipeline
+    :return: two composes, first one includes ToTensor if present
+    """
+    pre_tensor = True
+    pre_compose = []
+    post_compose = []
+    for t in compose.transforms:
+        if pre_tensor:
+            pre_compose.append(t)
+        else:
+            post_compose.append(t)
+        if isinstance(t, transforms.ToTensor):
+            pre_tensor = False
+    pre_compose = transforms.Compose(pre_compose)
+    post_compose = transforms.Compose(post_compose)
+    return pre_compose, post_compose
