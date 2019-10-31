@@ -10,7 +10,6 @@ import h5py
 import torch
 import shutil
 import random
-import logging
 import tarfile
 import zipfile
 import numpy as np
@@ -24,6 +23,7 @@ class NYUv2(Dataset):
     """
     PyTorch wrapper for the NYUv2 dataset focused on multi-task learning.
     Data sources available: RGB, Semantic Segmentation, Surface Normals, Depth Images.
+    If no transformation is provided, the image type will not be returned.
 
     ### Output
     All images are of size: 640 x 480
@@ -49,10 +49,6 @@ class NYUv2(Dataset):
         seg_transform=None,
         sn_transform=None,
         depth_transform=None,
-        rgb: bool = True,
-        segmentation: bool = True,
-        surface_normal: bool = True,
-        depth: bool = True,
     ):
         """
         Will return tuples based on what data source has been enabled (rgb, seg etc).
@@ -68,10 +64,6 @@ class NYUv2(Dataset):
         :param depth_transform: the transformation pipeline for depth images. If the
         transformation ends in a tensor, the result will be automatically converted
         to meters
-        :param rgb: load RGB images
-        :param segmentation: load semantic segmentation images
-        :param surface_normal: load surface_normal images
-        :param depth: load depth images
         """
         super().__init__()
         self.root = root
@@ -83,11 +75,6 @@ class NYUv2(Dataset):
 
         self.train = train
         self._split = "train" if train else "test"
-
-        self.rgb = rgb
-        self.segmentation = segmentation
-        self.surface_normal = surface_normal
-        self.depth = depth
 
         if download:
             self.download()
@@ -102,54 +89,40 @@ class NYUv2(Dataset):
 
     def __getitem__(self, index: int):
         folder = lambda name: os.path.join(self.root, f"{self._split}_{name}")
-        imgs = dict()
-
-        if self.rgb:
-            imgs["rgb"] = Image.open(os.path.join(folder("rgb"), self._files[index]))
-
-        if self.segmentation:
-            imgs["seg13"] = Image.open(
-                os.path.join(folder("seg13"), self._files[index])
-            )
-
-        if self.surface_normal:
-            imgs["sn"] = Image.open(os.path.join(folder("sn"), self._files[index]))
-
-        if self.depth:
-            imgs["depth"] = Image.open(
-                os.path.join(folder("depth"), self._files[index])
-            )
-
         seed = random.randrange(sys.maxsize)
-        if self.rgb and self.rgb_transform:
-            random.seed(seed)
-            imgs["rgb"] = self.rgb_transform(imgs["rgb"])
+        imgs = []
 
-        if self.segmentation:
-            if self.seg_transform:
-                random.seed(seed)
-                imgs["seg13"] = self.seg_transform(imgs["seg13"])
-            if isinstance(imgs["seg13"], torch.Tensor):
+        if self.rgb_transform is not None:
+            random.seed(seed)
+            img = Image.open(os.path.join(folder("rgb"), self._files[index]))
+            img = self.rgb_transform(img)
+            imgs.append(img)
+
+        if self.seg_transform is not None:
+            random.seed(seed)
+            img = Image.open(os.path.join(folder("seg13"), self._files[index]))
+            img = self.seg_transform(img)
+            if isinstance(img, torch.Tensor):
                 # ToTensor scales to [0, 1] by default
-                imgs["seg13"] = (imgs["seg13"] * 255).long()
-            else:
-                logging.warning(
-                    "Segmentation images should produce integer values - transform "
-                    "pipeline should output a tensor for conversion to trigger"
-                )
+                img = (img * 255).long()
+            imgs.append(img)
 
-        if self.surface_normal and self.sn_transform:
+        if self.sn_transform is not None:
             random.seed(seed)
-            imgs["sn"] = self.sn_transform(imgs["sn"])
+            img = Image.open(os.path.join(folder("sn"), self._files[index]))
+            img = self.sn_transform(img)
+            imgs.append(img)
 
-        if self.depth and self.depth_transform:
+        if self.depth_transform is not None:
             random.seed(seed)
-            imgs["depth"] = self.depth_transform(imgs["depth"])
-            if isinstance(imgs["depth"], torch.Tensor):
+            img = Image.open(os.path.join(folder("depth"), self._files[index]))
+            img = self.depth_transform(img)
+            if isinstance(img, torch.Tensor):
                 # depth png is uint16
-                imgs["depth"] = imgs["depth"].float() / 1e4
+                img = img.float() / 1e4
+            imgs.append(img)
 
-        return list(imgs.values())
+        return imgs
 
     def __len__(self):
         return len(self._files)
