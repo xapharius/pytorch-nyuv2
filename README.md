@@ -15,31 +15,45 @@ Downloads data from:
 from nyuv2 import NYUv2
 from torchvision import transforms
 
-t = transforms.Compose([transforms.RandomCrop(400), transforms.RandomHorizontalFlip()])
-NYUv2(root="/somepath/NYUv2", download=True, transform=t)
+t = transforms.Compose([transforms.RandomCrop(400), transforms.ToTensor()])
+NYUv2(root="/somepath/NYUv2", download=True, 
+      rgb_transform=t, seg_transform=t, sn_transform=t, depth_transform=t)
 ```
 ```
 Dataset NYUv2
     Number of datapoints: 795
     Split: train
     Root Location: /somepath/NYUv2
-    Transforms: Compose(
-                    RandomCrop(size=(400, 400), padding=None)
-                    RandomHorizontalFlip(p=0.5)
-                    ToTensor()
-                )
+    RGB Transforms: Compose(
+                        RandomCrop(size=(400, 400), padding=None)
+                        ToTensor()
+                    )
+    Seg Transforms: Compose(
+                        RandomCrop(size=(400, 400), padding=None)
+                        ToTensor()
+                    )
+    SN Transforms: Compose(
+                       RandomCrop(size=(400, 400), padding=None)
+                       ToTensor()
+                   )
+    Depth Transforms: Compose(
+                          RandomCrop(size=(400, 400), padding=None)
+                          ToTensor()
+                      )
 ```
 
 ![NYUv2](https://user-images.githubusercontent.com/1637188/57874116-c6632000-7807-11e9-9d7c-8d3060fa48d7.png)
 
 ## Notes
-- Applies the same transformation on all sources
-- Always returns tensors
+- Each source has its own transformation pipeline
+- Do not flip surface normals, as the output would be incorrect without further
+ processing
 
 ## Requirements
 ```
-pytorch: 1.1.0
-torchvision: 0.2.2
 h5py: 2.9.0
+pillow: 6.2.0
+pytorch: 0.4.0
+torchvision: 0.4.0
 ```
 
