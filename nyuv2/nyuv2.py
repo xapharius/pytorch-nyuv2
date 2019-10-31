@@ -16,7 +16,6 @@ import zipfile
 import numpy as np
 
 from PIL import Image
-from torchvision import transforms
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_url
 
@@ -27,17 +26,18 @@ class NYUv2(Dataset):
     Data sources available: RGB, Semantic Segmentation, Surface Normals, Depth Images.
 
     ### Output
-    All images are of size: 480 x 640
+    All images are of size: 640 x 480
 
-    1. RGB: 3 channels, without custom rgb_normalize the values will be in [0, 1]
-    due to ToTensor().
+    1. RGB: 3 channel input image
 
-    2. Semantic Segmentation: 1 channel with integers representing one of the 13
-    classes.
+    2. Semantic Segmentation: 1 channel representing one of the 14 (0 -
+    background) classes. Conversion to int will happen automatically if
+    transformation ends in a tensor.
 
-    3. Surface Normals: 3 channels, with values in [0, 1] due to ToTensor()
+    3. Surface Normals: 3 channels, with values in [0, 1].
 
     4. Depth Images: 1 channel with floats representing the distance in meters.
+    Conversion will happen automatically if transformation ends in a tensor.
     """
 
     def __init__(
@@ -55,20 +55,19 @@ class NYUv2(Dataset):
         depth: bool = True,
     ):
         """
-        Images will be automatically returned as tensors.
         Will return tuples based on what data source has been enabled (rgb, seg etc).
 
         :param root: path to root folder (eg /data/NYUv2)
         :param train: whether to load the train or test set
         :param download: whether to download and process data if missing
         :param rgb_transform: the transformation pipeline for rbg images
-        :param seg_transform: the transformation pipeline for segmentation images,
-        needs to end in a ToTensor transformation as more operations are internally
-        performed afterwards
+        :param seg_transform: the transformation pipeline for segmentation images. If
+        the transformation ends in a tensor, the result will be automatically
+        converted to int in [0, 14)
         :param sn_transform: the transformation pipeline for surface normal images
-        :param depth_transform: the transformation pipeline for depth images,
-        needs to end in a ToTensor transformation as more operations are internally
-        performed afterwards
+        :param depth_transform: the transformation pipeline for depth images. If the
+        transformation ends in a tensor, the result will be automatically converted
+        to meters
         :param rgb: load RGB images
         :param segmentation: load semantic segmentation images
         :param surface_normal: load surface_normal images
@@ -81,14 +80,6 @@ class NYUv2(Dataset):
         self.seg_transform = seg_transform
         self.sn_transform = sn_transform
         self.depth_transform = depth_transform
-
-        pre = post = None
-        if depth_transform is not None:
-            if isinstance(depth_transform, transforms.Compose):
-                pre, post = _split_transforms(depth_transform)
-            else:
-                pre, post = depth_transform, None
-        self._depth_pre_transform, self._depth_post_transform = pre, post
 
         self.train = train
         self._split = "train" if train else "test"
@@ -151,20 +142,12 @@ class NYUv2(Dataset):
             random.seed(seed)
             imgs["sn"] = self.sn_transform(imgs["sn"])
 
-        if self.depth:
-            if self.depth_transform:
-                random.seed(seed)
-                imgs["depth"] = self._depth_pre_transform(imgs["depth"])
-                if isinstance(imgs["depth"], torch.Tensor):
-                    # Additional transformation - decoding images to float32
-                    imgs["depth"] = _rgba_to_float32(imgs["depth"] * 255)
-                else:
-                    logging.warning(
-                        "Depth images require decoding - transform pipeline "
-                        "should output a tensor for decoder to trigger"
-                    )
-                if self._depth_post_transform is not None:
-                    imgs["depth"] = self._depth_post_transform(imgs["depth"])
+        if self.depth and self.depth_transform:
+            random.seed(seed)
+            imgs["depth"] = self.depth_transform(imgs["depth"])
+            if isinstance(imgs["depth"], torch.Tensor):
+                # depth png is uint16
+                imgs["depth"] = imgs["depth"].float() / 1e4
 
         return list(imgs.values())
 
@@ -345,75 +328,8 @@ def _create_depth_files(mat_file: str, root: str, train_ids: list):
 
     depths = h5py.File(mat_file, "r")["depths"]
     for i in range(len(depths)):
-        img = _float32_to_rgba(depths[i].T)
+        img = (depths[i] * 1e4).astype(np.uint16).T
         id_ = str(i + 1).zfill(4)
         folder = "train" if id_ in train_ids else "test"
         save_path = os.path.join(root, f"{folder}_depth", id_ + ".png")
-        Image.fromarray(img, mode="RGBA").save(save_path)
-
-
-def _float32_to_rgba(arr: np.ndarray):
-    """
-    Encode depth image from float32 into rgba that can be saved to disk as png
-    Shape: [H * W] -> [H * W * 4]
-    Value: abcdefgh -> [ab, cd, ef, gh]
-    """
-    arr = (arr * 1e7).astype(np.uint32)
-    res = np.stack(
-        [
-            (arr % 100).astype(np.uint8),
-            ((arr // 1e2) % 100).astype(np.uint8),
-            ((arr // 1e4) % 100).astype(np.uint8),
-            ((arr // 1e6) % 100).astype(np.uint8),
-        ]
-    )
-    res = res.transpose(1, 2, 0)
-    return res
-
-
-def _rgba_to_float32(arr: torch.Tensor):
-    """
-    Decode a depth image from rbga (png) to the original float values.
-    Expects rbga value ranges: 0 to 255
-    Shape: [4 * H * W] -> [H * W]
-    Value: [ab, cd, ef, gh] -> abcdefgh
-    """
-    res = (arr[0] + arr[1] * 1e2 + arr[2] * 1e4 + arr[3] * 1e6) / 1e7
-    res = res.unsqueeze(dim=0)
-    return res
-
-
-def __test_depth_conversion(mat_file: str):
-    """
-    Test whether depth encoding and decoding returns the original value
-    :param mat_file: path to the official labelled dataset .mat file
-    :return: None if passes, assert if fails
-    """
-    depths = h5py.File(mat_file, "r")["depths"]
-    raw = depths[0].T  # image at index 0
-    encoded = _float32_to_rgba(raw)
-    pil = Image.fromarray(encoded, mode="RGBA")
-    transformed = transforms.ToTensor()(pil) * 255
-    decoded = _rgba_to_float32(transformed)
-    assert torch.allclose(torch.tensor(raw), decoded)
-
-
-def _split_transforms(compose) -> (transforms.Compose, transforms.Compose):
-    """
-    Split transforms pipeline into pre and post ToTensor()
-    :param compose: a transforms pipeline
-    :return: two composes, first one includes ToTensor if present
-    """
-    pre_tensor = True
-    pre_compose = []
-    post_compose = []
-    for t in compose.transforms:
-        if pre_tensor:
-            pre_compose.append(t)
-        else:
-            post_compose.append(t)
-        if isinstance(t, transforms.ToTensor):
-            pre_tensor = False
-    pre_compose = transforms.Compose(pre_compose)
-    post_compose = transforms.Compose(post_compose)
-    return pre_compose, post_compose
+        Image.fromarray(img).save(save_path)
