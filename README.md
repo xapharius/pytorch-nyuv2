@@ -48,6 +48,7 @@ Dataset NYUv2
 - Each source has its own transformation pipeline
 - Do not flip surface normals, as the output would be incorrect without further
  processing
+- Semantic Segmentation Classes: (0) background, (1) bed, (2) books, (3) ceiling, (4) chair, (5) floor, (6) furniture, (7) objects, (8) painting, (9) sofa, (10) table, (11) tv, (12) wall, (13) window
 
 ## Requirements
 ```
