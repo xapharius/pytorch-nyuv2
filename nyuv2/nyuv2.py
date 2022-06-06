@@ -45,6 +45,7 @@ class NYUv2(Dataset):
         root: str,
         train: bool = True,
         download: bool = False,
+        download_all: bool = True,
         rgb_transform=None,
         seg_transform=None,
         sn_transform=None,
@@ -76,6 +77,7 @@ class NYUv2(Dataset):
         self.train = train
         self._split = "train" if train else "test"
 
+        self.download_all = download_all
         if download:
             self.download()
 
@@ -167,13 +169,13 @@ class NYUv2(Dataset):
     def download(self):
         if self._check_exists():
             return
-        if self.rgb_transform is not None:
+        if self.rgb_transform is not None or self.download_all:
             download_rgb(self.root)
-        if self.seg_transform is not None:
+        if self.seg_transform is not None or self.download_all:
             download_seg(self.root)
-        if self.sn_transform is not None:
+        if self.sn_transform is not None or self.download_all:
             download_sn(self.root)
-        if self.depth_transform is not None:
+        if self.depth_transform is not None or self.download_all:
             download_depth(self.root)
         print("Done!")
 
