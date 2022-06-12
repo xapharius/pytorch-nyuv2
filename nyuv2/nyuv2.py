@@ -158,9 +158,10 @@ class NYUv2(Dataset):
         """
         try:
             for split in ["train", "test"]:
-                for type_ in [a for a, b in zip(["rgb", "seg13", "sn", "depth"],
-                                                [self.rgb_transform, self.seg_transform, self.sn_transform, self.depth_transform])
-                             if b is not None]:
+                for part, transform in zip(["rgb", "seg13", "sn", "depth"],
+                                           [self.rgb_transform, self.seg_transform, self.sn_transform, self.depth_transform]):
+                    if transform is None:
+                        continue
                     path = os.path.join(self.root, f"{split}_{type_}")
                     if not os.path.exists(path):
                         raise FileNotFoundError("Missing Folder")
