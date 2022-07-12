@@ -160,7 +160,7 @@ class NYUv2(Dataset):
                                            [self.rgb_transform, self.seg_transform, self.sn_transform, self.depth_transform]):
                     if transform is None:
                         continue
-                    path = os.path.join(self.root, f"{split}_{type_}")
+                    path = os.path.join(self.root, f"{split}_{part}")
                     if not os.path.exists(path):
                         raise FileNotFoundError("Missing Folder")
         except FileNotFoundError as e:
@@ -174,7 +174,7 @@ class NYUv2(Dataset):
             download_rgb(self.root)
         if self.seg_transform is not None:
             download_seg(self.root)
-        if self.sn_transform is not None
+        if self.sn_transform is not None:
             download_sn(self.root)
         if self.depth_transform is not None:
             download_depth(self.root)
