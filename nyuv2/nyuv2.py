@@ -156,8 +156,18 @@ class NYUv2(Dataset):
         """
         try:
             for split in ["train", "test"]:
-                for type_ in ["rgb", "seg13", "sn", "depth"]:
-                    path = os.path.join(self.root, f"{split}_{type_}")
+                for part, transform in zip(
+                    ["rgb", "seg13", "sn", "depth"],
+                    [
+                        self.rgb_transform,
+                        self.seg_transform,
+                        self.sn_transform,
+                        self.depth_transform,
+                    ],
+                ):
+                    if transform is None:
+                        continue
+                    path = os.path.join(self.root, f"{split}_{part}")
                     if not os.path.exists(path):
                         raise FileNotFoundError("Missing Folder")
         except FileNotFoundError as e:
@@ -167,10 +177,14 @@ class NYUv2(Dataset):
     def download(self):
         if self._check_exists():
             return
-        download_rgb(self.root)
-        download_seg(self.root)
-        download_sn(self.root)
-        download_depth(self.root)
+        if self.rgb_transform is not None:
+            download_rgb(self.root)
+        if self.seg_transform is not None:
+            download_seg(self.root)
+        if self.sn_transform is not None:
+            download_sn(self.root)
+        if self.depth_transform is not None:
+            download_depth(self.root)
         print("Done!")
 
 
