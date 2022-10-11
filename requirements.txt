@@ -4,7 +4,7 @@ h5py==2.9.0
 mkl-fft==1.0.14
 mkl-random==1.1.0
 mkl-service==2.3.0
-numpy==1.17.2
+numpy==1.22.0
 olefile==0.46
 Pillow==6.2.0
 pycparser==2.19
