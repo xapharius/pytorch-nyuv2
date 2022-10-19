@@ -12,6 +12,7 @@ import shutil
 import random
 import tarfile
 import zipfile
+import requests
 import numpy as np
 
 from PIL import Image
@@ -225,14 +226,16 @@ def download_seg(root: str):
 
 
 def download_sn(root: str):
-    url = "https://www.inf.ethz.ch/personal/ladickyl/nyu_normals_gt.zip"
+    url = "https://www.dropbox.com/s/dn5sxhlgml78l03/nyu_normals_gt.zip"
     train_dst = os.path.join(root, "train_sn")
     test_dst = os.path.join(root, "test_sn")
 
     if not os.path.exists(train_dst) or not os.path.exists(test_dst):
         tar = os.path.join(root, url.split("/")[-1])
         if not os.path.exists(tar):
-            download_url(url, root)
+            req = requests.get(url + "?dl=1") # dropbox
+            with open(tar, 'wb') as f:
+                f.write(req.content)
         if os.path.exists(tar):
             _unpack(tar)
             if not os.path.exists(train_dst):
