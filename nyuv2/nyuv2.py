@@ -86,7 +86,7 @@ class NYUv2(Dataset):
             )
 
         # rgb folder as ground truth
-        self._files = os.listdir(os.path.join(root, f"{self._split}_rgb"))
+        self._files = sorted(os.listdir(os.path.join(root, f"{self._split}_rgb")))
 
     def __getitem__(self, index: int):
         folder = lambda name: os.path.join(self.root, f"{self._split}_{name}")
