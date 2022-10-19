@@ -46,9 +46,10 @@ Dataset NYUv2
 
 ## Notes
 - Each source has its own transformation pipeline
-- Downloads datasets only for tasks where the passed transform is not None.
+- Downloads datasets only for tasks where the passed transform is not None
 - Do not flip surface normals, as the output would be incorrect without further
  processing
+- Image size is 480x640, however some have a white border which can be removed by cropping 16px from all sides
 - Semantic Segmentation Classes: (0) background, (1) bed, (2) books, (3) ceiling, (4) chair, (5) floor, (6) furniture, (7) objects, (8) painting, (9) sofa, (10) table, (11) tv, (12) wall, (13) window
 
 ## Requirements
