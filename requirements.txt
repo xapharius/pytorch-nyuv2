@@ -1,4 +1,4 @@
-certifi==2019.9.11
+certifi==2022.12.7
 cffi==1.13.1
 h5py==2.9.0
 mkl-fft==1.0.14
